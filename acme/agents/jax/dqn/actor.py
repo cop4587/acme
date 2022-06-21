@@ -56,7 +56,10 @@ def alternating_epsilons_actor_core(
                        observation: networks_lib.Observation,
                        state: EpsilonActorState):
     random_key, key = jax.random.split(state.rng)
-    actions = policy_network(params, key, observation, state.epsilon)
+    actions, action_values = policy_network(params, key, observation, state.epsilon)
+
+    print(f"[DEBUG] action_values = {action_values}")
+
     return (actions.astype(jnp.int32),
             EpsilonActorState(rng=random_key, epsilon=state.epsilon))
 
@@ -81,7 +84,8 @@ def behavior_policy(network: networks_lib.FeedForwardNetwork
     observation = utils.add_batch_dim(observation)
     action_values = network.apply(params, observation)
     action_values = utils.squeeze_batch_dim(action_values)
-    return rlax.epsilon_greedy(epsilon).sample(key, action_values)
+    actions = rlax.epsilon_greedy(epsilon).sample(key, action_values)
+    return actions, action_values
 
   return apply_and_sample
 
