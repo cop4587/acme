@@ -56,10 +56,7 @@ def alternating_epsilons_actor_core(
                        observation: networks_lib.Observation,
                        state: EpsilonActorState):
     random_key, key = jax.random.split(state.rng)
-    actions, action_values = policy_network(params, key, observation, state.epsilon)
-
-    print(f"[DEBUG] action_values = {action_values}")
-
+    actions = policy_network(params, key, observation, state.epsilon)
     return (actions.astype(jnp.int32),
             EpsilonActorState(rng=random_key, epsilon=state.epsilon))
 
@@ -81,11 +78,13 @@ def behavior_policy(network: networks_lib.FeedForwardNetwork
                        observation: networks_lib.Observation, epsilon: Epsilon
                        ) -> networks_lib.Action:
     # TODO(b/161332815): Make JAX Actor work with batched or unbatched inputs.
-    observation = utils.add_batch_dim(observation)
+
+    # For dc-molax.environments.MoleculeEnvironment, no need to add batch dim
+    # observation = utils.add_batch_dim(observation)
     action_values = network.apply(params, observation)
-    action_values = utils.squeeze_batch_dim(action_values)
-    actions = rlax.epsilon_greedy(epsilon).sample(key, action_values)
-    return actions, action_values
+    # action_values = utils.squeeze_batch_dim(action_values)
+    action_values = jnp.squeeze(action_values)
+    return rlax.epsilon_greedy(epsilon).sample(key, action_values)
 
   return apply_and_sample
 
