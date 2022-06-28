@@ -25,8 +25,6 @@ import jax.numpy as jnp
 import rlax
 from acme.jax import utils
 
-n_fingerprints: int = 0
-
 Epsilon = float
 EpsilonPolicy = Callable[[
                            networks_lib.Params, networks_lib.PRNGKey,
@@ -81,12 +79,24 @@ def behavior_policy(network: networks_lib.FeedForwardNetwork
                        observation: networks_lib.Observation, epsilon: Epsilon
                        ) -> networks_lib.Action:
     # TODO(b/161332815): Make JAX Actor work with batched or unbatched inputs.
+    observation = utils.add_batch_dim(observation)
+    action_values = network.apply(params, observation)
+    action_values = utils.squeeze_batch_dim(action_values)
+    return rlax.epsilon_greedy(epsilon).sample(key, action_values)
 
-    fingerprints = observation[1:n_fingerprints]
+  return apply_and_sample
 
-    # observation = utils.add_batch_dim(observation)
+
+def behavior_policy_fingerprint(network: networks_lib.FeedForwardNetwork
+                                ) -> EpsilonPolicy:
+  """A policy with parameterized epsilon-greedy exploration."""
+
+  def apply_and_sample(params: networks_lib.Params, key: networks_lib.PRNGKey,
+                       observation: networks_lib.Observation, epsilon: Epsilon
+                       ) -> networks_lib.Action:
+    # TODO unbox fingerprints out of observation by checking zero-row
+    fingerprints = observation
     action_values = network.apply(params, fingerprints)
-    # action_values = utils.squeeze_batch_dim(action_values)
     action_values = jnp.squeeze(action_values)
     return rlax.epsilon_greedy(epsilon).sample(key, action_values)
 
