@@ -24,6 +24,7 @@ import jax
 import jax.numpy as jnp
 import rlax
 from acme.jax import utils
+from jax import lax
 
 Epsilon = float
 EpsilonPolicy = Callable[[
@@ -87,6 +88,9 @@ def behavior_policy(network: networks_lib.FeedForwardNetwork
   return apply_and_sample
 
 
+accu = jnp.empty((2049,))
+
+
 def behavior_policy_fingerprint(network: networks_lib.FeedForwardNetwork
                                 ) -> EpsilonPolicy:
   """A policy with parameterized epsilon-greedy exploration."""
@@ -94,9 +98,16 @@ def behavior_policy_fingerprint(network: networks_lib.FeedForwardNetwork
   def apply_and_sample(params: networks_lib.Params, key: networks_lib.PRNGKey,
                        observation: networks_lib.Observation, epsilon: Epsilon
                        ) -> networks_lib.Action:
-    # TODO unbox fingerprints out of observation by checking zero-row
-    fingerprints = observation
-    action_values = network.apply(params, fingerprints)
+
+    idx = lax.while_loop(lambda i: jnp.all(observation[i]), lambda i: i + 1, 0)
+
+    idx_np = idx.astype(np.int32)  # Traced
+    idx_jnp = idx.astype(jnp.int32)  # Traced
+
+    fps_np = observation[:idx_np]  # IndexError
+    fps_jnp = observation[:idx_jnp]
+
+    action_values = network.apply(params, fps)
     action_values = jnp.squeeze(action_values)
     return rlax.epsilon_greedy(epsilon).sample(key, action_values)
 
