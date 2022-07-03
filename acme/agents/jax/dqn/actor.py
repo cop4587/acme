@@ -98,16 +98,7 @@ def behavior_policy_fingerprint(network: networks_lib.FeedForwardNetwork
   def apply_and_sample(params: networks_lib.Params, key: networks_lib.PRNGKey,
                        observation: networks_lib.Observation, epsilon: Epsilon
                        ) -> networks_lib.Action:
-
-    idx = lax.while_loop(lambda i: jnp.all(observation[i]), lambda i: i + 1, 0)
-
-    idx_np = idx.astype(np.int32)  # Traced
-    idx_jnp = idx.astype(jnp.int32)  # Traced
-
-    fps_np = observation[:idx_np]  # IndexError
-    fps_jnp = observation[:idx_jnp]
-
-    action_values = network.apply(params, fps)
+    action_values = network.apply(params, observation)
     action_values = jnp.squeeze(action_values)
     return rlax.epsilon_greedy(epsilon).sample(key, action_values)
 
