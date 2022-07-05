@@ -100,7 +100,8 @@ class DQNBuilder(builders.ActorLearnerBuilder[networks_lib.FeedForwardNetwork,
       variable_source, '', device='cpu')
     epsilon = self._config.epsilon
     epsilons = epsilon if epsilon is Sequence else (epsilon,)
-    actor_core = dqn_actor.alternating_epsilons_actor_core(
+    # actor_core = dqn_actor.alternating_epsilons_actor_core(
+    actor_core = dqn_actor.fingerprint_actor_core(
       policy, epsilons=epsilons)
     return actors.GenericActor(
       actor=actor_core,
