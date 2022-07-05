@@ -76,7 +76,76 @@ class PrioritizedDoubleQLearning(learning_lib.LossFn):
     # Reweight.
     loss = jnp.mean(importance_weights * batch_loss)  # []
     reverb_update = learning_lib.ReverbUpdate(
-        keys=keys, priorities=jnp.abs(td_error).astype(jnp.float64))
+      keys=keys, priorities=jnp.abs(td_error).astype(jnp.float64))
+    extra = learning_lib.LossExtra(metrics={}, reverb_update=reverb_update)
+    return loss, extra
+
+
+@dataclasses.dataclass
+class PrioritizedDoubleQLearningFingerprint(learning_lib.LossFn):
+  """Clipped double q learning with prioritization on TD error.
+
+  In forward pass, the network outputs are modified to adapt molecule
+  fingerprint-based algorithm (variable number of actions per timestep) to
+  standard DQN framework (fixed number of actions per timestep).
+  """
+  discount: float = 0.99
+  importance_sampling_exponent: float = 0.2
+  max_abs_reward: float = 1.
+  huber_loss_parameter: float = 1.
+  stochastic_network: bool = False
+
+  def __call__(
+      self,
+      network: networks_lib.FeedForwardNetwork,
+      params: networks_lib.Params,
+      target_params: networks_lib.Params,
+      batch: reverb.ReplaySample,
+      key: networks_lib.PRNGKey,
+  ) -> Tuple[jnp.DeviceArray, learning_lib.LossExtra]:
+    """Calculate a loss on a single batch of data."""
+    transitions: types.Transition = batch.data
+    keys, probs, *_ = batch.info
+
+    # Forward pass.
+    if self.stochastic_network:
+      q_tm1 = network.apply(params, key, transitions.observation)
+      q_t_value = network.apply(target_params, key,
+                                transitions.next_observation)
+      q_t_selector = network.apply(params, key, transitions.next_observation)
+    else:
+      q_tm1 = network.apply(params, transitions.observation)
+      q_t_value = network.apply(target_params, transitions.next_observation)
+      q_t_selector = network.apply(params, transitions.next_observation)
+
+    # Cast and clip rewards.
+    d_t = (transitions.discount * self.discount).astype(jnp.float32)
+    r_t = jnp.clip(transitions.reward, -self.max_abs_reward,
+                   self.max_abs_reward).astype(jnp.float32)
+
+    # Similar to the process of acting, to fit the varied-num of actions into
+    # standard DQN algorithm, we have to simulate the shape (bs, num_actions)
+    # by squeezing the obs_bs number of state_tp1 into one single batch:
+    # (bs, obs_bs, 1) to (bs, obs_bs).
+    q_tm1 = jnp.squeeze(q_tm1)
+    q_t_value = jnp.squeeze(q_t_value)
+    q_t_selector = jnp.squeeze(q_t_selector)
+
+    # Compute double Q-learning n-step TD-error.
+    batch_error = jax.vmap(rlax.double_q_learning)
+    td_error = batch_error(q_tm1, transitions.action, r_t, d_t, q_t_value,
+                           q_t_selector)
+    batch_loss = rlax.huber_loss(td_error, self.huber_loss_parameter)
+
+    # Importance weighting.
+    importance_weights = (1. / probs).astype(jnp.float32)
+    importance_weights **= self.importance_sampling_exponent
+    importance_weights /= jnp.max(importance_weights)
+
+    # Reweight.
+    loss = jnp.mean(importance_weights * batch_loss)  # []
+    reverb_update = learning_lib.ReverbUpdate(
+      keys=keys, priorities=jnp.abs(td_error).astype(jnp.float64))
     extra = learning_lib.LossExtra(metrics={}, reverb_update=reverb_update)
     return loss, extra
 
@@ -112,16 +181,16 @@ class QrDqn(learning_lib.LossFn):
     quantiles = (
         (jnp.arange(self.num_atoms, dtype=jnp.float32) + 0.5) / self.num_atoms)
     batch_quantile_q_learning = jax.vmap(
-        rlax.quantile_q_learning, in_axes=(0, None, 0, 0, 0, 0, 0, None))
+      rlax.quantile_q_learning, in_axes=(0, None, 0, 0, 0, 0, 0, None))
     losses = batch_quantile_q_learning(
-        dist_q_tm1,
-        quantiles,
-        transitions.action,
-        transitions.reward,
-        transitions.discount,
-        dist_q_target_t,  # No double Q-learning here.
-        dist_q_target_t,
-        self.huber_param,
+      dist_q_tm1,
+      quantiles,
+      transitions.action,
+      transitions.reward,
+      transitions.discount,
+      dist_q_target_t,  # No double Q-learning here.
+      dist_q_target_t,
+      self.huber_param,
     )
     loss = jnp.mean(losses)
     extra = learning_lib.LossExtra(metrics={'mean_loss': loss})
@@ -161,8 +230,8 @@ class PrioritizedCategoricalDoubleQLearning(learning_lib.LossFn):
 
     # Compute categorical double Q-learning loss.
     batch_loss_fn = jax.vmap(
-        rlax.categorical_double_q_learning,
-        in_axes=(None, 0, 0, 0, 0, None, 0, 0))
+      rlax.categorical_double_q_learning,
+      in_axes=(None, 0, 0, 0, 0, None, 0, 0))
     batch_loss = batch_loss_fn(atoms_tm1, logits_tm1, transitions.action, r_t,
                                d_t, atoms_t, logits_t, q_t_selector)
 
@@ -174,7 +243,7 @@ class PrioritizedCategoricalDoubleQLearning(learning_lib.LossFn):
     # Reweight.
     loss = jnp.mean(importance_weights * batch_loss)  # []
     reverb_update = learning_lib.ReverbUpdate(
-        keys=keys, priorities=jnp.abs(batch_loss).astype(jnp.float64))
+      keys=keys, priorities=jnp.abs(batch_loss).astype(jnp.float64))
     extra = learning_lib.LossExtra(metrics={}, reverb_update=reverb_update)
     return loss, extra
 
@@ -254,11 +323,12 @@ class RegularizedQLearning(learning_lib.LossFn):
     # Compute Q-learning TD-error.
     batch_error = jax.vmap(rlax.q_learning)
     td_error = batch_error(
-        q_tm1, transitions.action, transitions.reward, d_t, q_t)
+      q_tm1, transitions.action, transitions.reward, d_t, q_t)
     td_error = 0.5 * jnp.square(td_error)
 
     def select(qtm1, action):
       return qtm1[action]
+
     q_regularizer = jax.vmap(select)(q_tm1, transitions.action)
 
     loss = self.regularizer_coeff * jnp.mean(q_regularizer) + jnp.mean(td_error)
@@ -305,7 +375,7 @@ class MunchausenQLearning(learning_lib.LossFn):
 
     # Munchausen term : tau * log_pi(a|s)
     munchausen_term = self.entropy_temperature * jax.nn.log_softmax(
-        q_target_s / self.entropy_temperature, axis=-1)
+      q_target_s / self.entropy_temperature, axis=-1)
     munchausen_term_a = jnp.sum(action_one_hot * munchausen_term, axis=-1)
     munchausen_term_a = jnp.clip(munchausen_term_a,
                                  a_min=self.clip_value_min,
@@ -313,7 +383,7 @@ class MunchausenQLearning(learning_lib.LossFn):
 
     # Soft Bellman operator applied to q
     next_v = self.entropy_temperature * jax.nn.logsumexp(
-        q_target_next / self.entropy_temperature, axis=-1)
+      q_target_next / self.entropy_temperature, axis=-1)
     target_q = jax.lax.stop_gradient(r_t + self.munchausen_coefficient *
                                      munchausen_term_a + d_t * next_v)
 

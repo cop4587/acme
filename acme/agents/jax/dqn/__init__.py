@@ -28,4 +28,5 @@ from acme.agents.jax.dqn.learning_lib import LossFn
 from acme.agents.jax.dqn.learning_lib import ReverbUpdate
 from acme.agents.jax.dqn.learning_lib import SGDLearner
 from acme.agents.jax.dqn.losses import PrioritizedDoubleQLearning
+from acme.agents.jax.dqn.losses import PrioritizedDoubleQLearningFingerprint
 from acme.agents.jax.dqn.losses import QrDqn
