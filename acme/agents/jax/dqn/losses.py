@@ -123,10 +123,9 @@ class PrioritizedDoubleQLearningFingerprint(learning_lib.LossFn):
     r_t = jnp.clip(transitions.reward, -self.max_abs_reward,
                    self.max_abs_reward).astype(jnp.float32)
 
-    # Similar to the process of acting, to fit the varied-num of actions into
-    # standard DQN algorithm, we have to simulate the shape (bs, num_actions)
-    # by squeezing the obs_bs number of state_tp1 into one single batch:
-    # (bs, obs_bs, 1) to (bs, obs_bs).
+    # To adapt the varied-num of actions to DQN algorithm, we simulate
+    # the shape (bs, num_actions) by squeezing the obs_bs number of state_tp1
+    # into one single batch: (bs, obs_bs, 1) to (bs, obs_bs).
     q_tm1 = jnp.squeeze(q_tm1)
     q_t_value = jnp.squeeze(q_t_value)
     q_t_selector = jnp.squeeze(q_t_selector)
