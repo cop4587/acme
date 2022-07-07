@@ -31,6 +31,7 @@ from acme.jax import variable_utils
 from acme.utils import counting
 from acme.utils import loggers
 import jax
+import jax.numpy as jnp
 import optax
 import reverb
 from reverb import rate_limiters
@@ -97,8 +98,7 @@ class DQNBuilder(builders.ActorLearnerBuilder[networks_lib.FeedForwardNetwork,
       variable_source, '', device='cpu')
     epsilon = self._config.epsilon
     epsilons = epsilon if epsilon is Sequence else (epsilon,)
-    # actor_core = dqn_actor.alternating_epsilons_actor_core(
-    actor_core = dqn_actor.fingerprint_actor_core(
+    actor_core = dqn_actor.alternating_epsilons_actor_core(
       policy, epsilons=epsilons)
     return actors.GenericActor(
       actor=actor_core,
@@ -130,8 +130,10 @@ class DQNBuilder(builders.ActorLearnerBuilder[networks_lib.FeedForwardNetwork,
         remover=reverb.selectors.Fifo(),
         max_size=self._config.max_replay_size,
         rate_limiter=limiter,
+        # signature=adders_reverb.NStepTransitionAdder.signature(environment_spec)
         signature=adders_reverb.NStepTransitionAdder.signature(
-          environment_spec))
+          environment_spec, extras_spec=specs.Array((1,), jnp.int32))
+      )
     ]
 
   def make_dataset_iterator(
