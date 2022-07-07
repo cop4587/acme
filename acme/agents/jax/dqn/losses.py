@@ -15,7 +15,7 @@
 """DQN losses."""
 import dataclasses
 from typing import Tuple
-
+from functools import partial
 from acme import types
 from acme.agents.jax.dqn import learning_lib
 from acme.jax import networks as networks_lib

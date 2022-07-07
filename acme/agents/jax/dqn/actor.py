@@ -25,6 +25,7 @@ import jax.numpy as jnp
 import rlax
 from acme.jax import utils
 from jax import lax
+from acme.agents.jax.dqn import actor_molecule_config as actor_mol_cfg
 
 Epsilon = float
 EpsilonPolicy = Callable[[
@@ -76,14 +77,6 @@ def alternating_epsilons_actor_core(
     get_extras=num_fps)
 
 
-def fingerprint_actor_core(
-    policy_network: EpsilonPolicy, epsilons: Sequence[float],
-) -> actor_core_lib.ActorCore[EpsilonActorState, None]:
-  actor_core = alternating_epsilons_actor_core(policy_network, epsilons)
-  actor_core.get_extras = lambda _: 42
-  return actor_core
-
-
 def behavior_policy(network: networks_lib.FeedForwardNetwork
                     ) -> EpsilonPolicy:
   """A policy with parameterized epsilon-greedy exploration."""
@@ -102,12 +95,13 @@ def behavior_policy(network: networks_lib.FeedForwardNetwork
 
 def behavior_policy_fingerprint(network: networks_lib.FeedForwardNetwork
                                 ) -> EpsilonPolicy:
-  """A policy with parameterized epsilon-greedy exploration."""
+  """The epsilon-greedy policy work with MoleculeEnvironment"""
 
   def apply_and_sample(params: networks_lib.Params, key: networks_lib.PRNGKey,
                        observation: networks_lib.Observation, epsilon: Epsilon
                        ) -> networks_lib.Action:
-    action_values = network.apply(params, observation)
+    embs_tp1 = observation[:actor_mol_cfg.num_states_tp1]
+    action_values = network.apply(params, embs_tp1)
     action_values = jnp.squeeze(action_values)
     return rlax.epsilon_greedy(epsilon).sample(key, action_values)
 
