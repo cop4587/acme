@@ -67,16 +67,20 @@ def alternating_epsilons_actor_core(
     epsilon = jax.random.choice(key, epsilons)
     return EpsilonActorState(rng=random_key, epsilon=epsilon)
 
+  def num_fps(_):
+    return jnp.array([42])
+
   return actor_core_lib.ActorCore(
     init=policy_init, select_action=apply_and_sample,
-    get_extras=lambda _: None)
+    # get_extras=lambda _: None)
+    get_extras=num_fps)
 
 
 def fingerprint_actor_core(
     policy_network: EpsilonPolicy, epsilons: Sequence[float],
 ) -> actor_core_lib.ActorCore[EpsilonActorState, None]:
   actor_core = alternating_epsilons_actor_core(policy_network, epsilons)
-  actor_core.get_extras = lambda _: {'num_fps': 9}
+  actor_core.get_extras = lambda _: 42
   return actor_core
 
 
