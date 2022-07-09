@@ -26,6 +26,7 @@ import rlax
 from acme.jax import utils
 from jax import lax
 from acme.agents.jax.dqn import actor_molecule_config as actor_mol_cfg
+import numpy as np
 
 Epsilon = float
 EpsilonPolicy = Callable[[
@@ -68,13 +69,15 @@ def alternating_epsilons_actor_core(
     epsilon = jax.random.choice(key, epsilons)
     return EpsilonActorState(rng=random_key, epsilon=epsilon)
 
-  def num_fps(_):
-    return jnp.array([42])
+  def obs_key(state):
+    # ok = np.random.randn()
+    # actor_mol_cfg.observation_registry[ok] = actor_mol_cfg.num_states_tp1
+    # return ok
+    return actor_mol_cfg.num_states_tp1
 
   return actor_core_lib.ActorCore(
     init=policy_init, select_action=apply_and_sample,
-    # get_extras=lambda _: None)
-    get_extras=num_fps)
+    get_extras=obs_key)
 
 
 def behavior_policy(network: networks_lib.FeedForwardNetwork
@@ -100,8 +103,8 @@ def behavior_policy_fingerprint(network: networks_lib.FeedForwardNetwork
   def apply_and_sample(params: networks_lib.Params, key: networks_lib.PRNGKey,
                        observation: networks_lib.Observation, epsilon: Epsilon
                        ) -> networks_lib.Action:
-    embs_tp1 = observation[:actor_mol_cfg.num_states_tp1]
-    action_values = network.apply(params, embs_tp1)
+    embeddings_tp1 = observation[:actor_mol_cfg.num_states_tp1]
+    action_values = network.apply(params, embeddings_tp1)
     action_values = jnp.squeeze(action_values)
     return rlax.epsilon_greedy(epsilon).sample(key, action_values)
 
