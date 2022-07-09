@@ -24,6 +24,7 @@ from acme.agents.jax import builders
 from acme.agents.jax.dqn import actor as dqn_actor
 from acme.agents.jax.dqn import config as dqn_config
 from acme.agents.jax.dqn import learning_lib
+from acme.agents.jax.dqn import actor_molecule_config as actor_mol_cfg
 from acme.datasets import reverb as datasets
 from acme.jax import networks as networks_lib
 from acme.jax import utils
@@ -32,6 +33,7 @@ from acme.utils import counting
 from acme.utils import loggers
 import jax
 import jax.numpy as jnp
+import numpy as np
 import optax
 import reverb
 from reverb import rate_limiters
@@ -105,6 +107,7 @@ class DQNBuilder(builders.ActorLearnerBuilder[networks_lib.FeedForwardNetwork,
       random_key=random_key,
       variable_client=variable_client,
       adder=adder,
+      jit=False,  # Hack: to work with MoleculeEnvironment
       backend=self._actor_backend)
 
   def make_replay_tables(
@@ -130,9 +133,8 @@ class DQNBuilder(builders.ActorLearnerBuilder[networks_lib.FeedForwardNetwork,
         remover=reverb.selectors.Fifo(),
         max_size=self._config.max_replay_size,
         rate_limiter=limiter,
-        # signature=adders_reverb.NStepTransitionAdder.signature(environment_spec)
         signature=adders_reverb.NStepTransitionAdder.signature(
-          environment_spec, extras_spec=specs.Array((1,), jnp.int32))
+          environment_spec, extras_spec=specs.Array((), int))
       )
     ]
 
