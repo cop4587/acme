@@ -18,6 +18,7 @@ from typing import Tuple
 from functools import partial
 from acme import types
 from acme.agents.jax.dqn import learning_lib
+from acme.agents.jax.dqn import actor_molecule_config as actor_mol_cfg
 from acme.jax import networks as networks_lib
 import jax
 import jax.numpy as jnp
