@@ -134,7 +134,7 @@ class DQNBuilder(builders.ActorLearnerBuilder[networks_lib.FeedForwardNetwork,
         max_size=self._config.max_replay_size,
         rate_limiter=limiter,
         signature=adders_reverb.NStepTransitionAdder.signature(
-          environment_spec, extras_spec=specs.Array((), float))
+          environment_spec, extras_spec=specs.Array((), int))
       )
     ]
 
