@@ -70,9 +70,7 @@ def alternating_epsilons_actor_core(
     return EpsilonActorState(rng=random_key, epsilon=epsilon)
 
   def obs_key(state):
-    ok = np.random.randn()
-    actor_mol_cfg.observation_registry[ok] = actor_mol_cfg.num_states_tp1
-    return ok
+    return actor_mol_cfg.num_states_tp1
 
   return actor_core_lib.ActorCore(
     init=policy_init, select_action=apply_and_sample,
