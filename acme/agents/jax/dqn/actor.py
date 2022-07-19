@@ -69,12 +69,12 @@ def alternating_epsilons_actor_core(
     epsilon = jax.random.choice(key, epsilons)
     return EpsilonActorState(rng=random_key, epsilon=epsilon)
 
-  def obs_key(state):
+  def extras_fingerprint(state):
     return actor_mol_cfg.num_states_tp1
 
   return actor_core_lib.ActorCore(
     init=policy_init, select_action=apply_and_sample,
-    get_extras=obs_key)
+    get_extras=lambda _: None)
 
 
 def behavior_policy(network: networks_lib.FeedForwardNetwork
@@ -100,9 +100,13 @@ def behavior_policy_fingerprint(network: networks_lib.FeedForwardNetwork
   def apply_and_sample(params: networks_lib.Params, key: networks_lib.PRNGKey,
                        observation: networks_lib.Observation, epsilon: Epsilon
                        ) -> networks_lib.Action:
-    embeddings_tp1 = observation[:actor_mol_cfg.num_states_tp1]
-    action_values = network.apply(params, embeddings_tp1)
+    ext_fingerprints = observation[:actor_mol_cfg.num_states_tp1]
+    action_values = network.apply(params, ext_fingerprints)
     action_values = jnp.squeeze(action_values)
+
+    assert jnp.all(action_values), (  # This is unbelievable
+      '[molax|actor] Not all action_values are positive!')
+
     return rlax.epsilon_greedy(epsilon).sample(key, action_values)
 
   return apply_and_sample

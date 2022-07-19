@@ -134,8 +134,7 @@ class DQNBuilder(builders.ActorLearnerBuilder[networks_lib.FeedForwardNetwork,
         max_size=self._config.max_replay_size,
         rate_limiter=limiter,
         signature=adders_reverb.NStepTransitionAdder.signature(
-          environment_spec, extras_spec=specs.Array((), int))
-      )
+          environment_spec))
     ]
 
   def make_dataset_iterator(
