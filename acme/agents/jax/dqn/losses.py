@@ -24,6 +24,7 @@ import jax
 import jax.numpy as jnp
 import reverb
 import rlax
+import numpy as np
 
 
 @dataclasses.dataclass
@@ -84,12 +85,7 @@ class PrioritizedDoubleQLearning(learning_lib.LossFn):
 
 @dataclasses.dataclass
 class PrioritizedDoubleQLearningFingerprint(learning_lib.LossFn):
-  """Clipped double q learning with prioritization on TD error.
-
-  In forward pass, the network outputs are modified to adapt molecule
-  fingerprint-based algorithm (variable number of actions per timestep) to
-  standard DQN framework (fixed number of actions per timestep).
-  """
+  """PrioritizedDoubleQLearning for molecule-fingerprint version"""
   discount: float = 0.99
   importance_sampling_exponent: float = 0.2
   max_abs_reward: float = 1.
@@ -119,17 +115,17 @@ class PrioritizedDoubleQLearningFingerprint(learning_lib.LossFn):
       q_t_value = network.apply(target_params, transitions.next_observation)
       q_t_selector = network.apply(params, transitions.next_observation)
 
+      # dc-molax: simulate n_actions: (bs, n_states_tp1, Q-val) -> (bs, Q-vals)
+      q_tm1 = jnp.squeeze(q_tm1)
+      q_t_value = jnp.squeeze(q_t_value)
+      q_t_selector = jnp.squeeze(q_t_selector)
+
+      # assert jnp.all(q_t_selector >= 0.), 'losses: Not all q_t_selector >= 0.'
+
     # Cast and clip rewards.
     d_t = (transitions.discount * self.discount).astype(jnp.float32)
     r_t = jnp.clip(transitions.reward, -self.max_abs_reward,
                    self.max_abs_reward).astype(jnp.float32)
-
-    # To adapt the varied-num of actions to DQN algorithm, we simulate
-    # the shape (bs, num_actions) by squeezing the obs_bs number of state_tp1
-    # into one single batch: (bs, obs_bs, 1) to (bs, obs_bs).
-    q_tm1 = jnp.squeeze(q_tm1)
-    q_t_value = jnp.squeeze(q_t_value)
-    q_t_selector = jnp.squeeze(q_t_selector)
 
     # Compute double Q-learning n-step TD-error.
     batch_error = jax.vmap(rlax.double_q_learning)
