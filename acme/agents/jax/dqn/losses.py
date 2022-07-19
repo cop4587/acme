@@ -154,6 +154,13 @@ class PrioritizedDoubleQLearningFingerprint(learning_lib.LossFn):
         q_t_value = jnp.vstack((q_t_value, _q_t_value))
         q_t_selector = jnp.vstack((q_t_selector, _q_t_selector))
 
+      # dc-molax: simulate n_actions: (bs, n_states_tp1, Q-val) -> (bs, Q-vals)
+      q_tm1 = jnp.squeeze(q_tm1)
+      q_t_value = jnp.squeeze(q_t_value)
+      q_t_selector = jnp.squeeze(q_t_selector)
+
+      # assert jnp.all(q_t_selector >= 0.), 'losses: Not all q_t_selector >= 0.'
+
     # Cast and clip rewards.
     d_t = (transitions.discount * self.discount).astype(jnp.float32)
     r_t = jnp.clip(transitions.reward, -self.max_abs_reward,
