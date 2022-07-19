@@ -77,14 +77,6 @@ def alternating_epsilons_actor_core(
     get_extras=lambda _: None)
 
 
-def fingerprint_actor_core(
-    policy_network: EpsilonPolicy, epsilons: Sequence[float],
-) -> actor_core_lib.ActorCore[EpsilonActorState, None]:
-  actor_core = alternating_epsilons_actor_core(policy_network, epsilons)
-  actor_core.get_extras = lambda _: {'num_fps': 9}
-  return actor_core
-
-
 def behavior_policy(network: networks_lib.FeedForwardNetwork
                     ) -> EpsilonPolicy:
   """A policy with parameterized epsilon-greedy exploration."""
