@@ -171,29 +171,6 @@ class SGDLearner(acme.Learner):
     with jax.profiler.StepTraceAnnotation('step',
                                           step_num=self._state.steps):
       batch = next(self._data_iterator)
-
-      def unbox_fingerprints(obs_batch):
-        fgprts = []
-        for obs in obs_batch:
-          n_unique_rows = len(np.unique(obs, axis=0))  # jnp.unique stuck
-          emb = obs[:n_unique_rows - 1]  # ignore last zero-padding row
-          fgprts.append(emb)
-        return fgprts
-
-      def get_fingerprints_batch(batch):
-        obs_fgprts = unbox_fingerprints(batch.data.observation)
-        next_obs_fgprts = unbox_fingerprints(batch.data.next_observation)
-        data_fgprts = Transition(
-          observation=obs_fgprts,
-          next_observation=next_obs_fgprts,
-          action=batch.data.action,
-          reward=batch.data.reward,
-          discount=batch.data.discount,
-          extras=batch.data.extras)
-        return reverb.ReplaySample(info=batch.info, data=data_fgprts)
-
-      # batch = get_fingerprints_batch(batch)
-
       self._state, extra = self._sgd_step(self._state, batch)
 
       # Compute elapsed time.
