@@ -101,6 +101,14 @@ class PrioritizedDoubleQLearningFingerprint(learning_lib.LossFn):
       key: networks_lib.PRNGKey,
   ) -> Tuple[jnp.DeviceArray, learning_lib.LossExtra]:
     """Calculate a loss on a single batch of data."""
+
+    def unbox_fingerprints(observation_batch):
+      fps_batch = []
+      for obs in observation_batch:
+        n_fps = len(np.unique(obs, axis=0)) - 1  # ignore last zero-padding row
+        fps_batch.append(obs[:n_fps])  # only list support varying in len vector
+      return fps_batch  # (bs, n_states_tp1)
+
     transitions: types.Transition = batch.data
     keys, probs, *_ = batch.info
 
@@ -111,16 +119,40 @@ class PrioritizedDoubleQLearningFingerprint(learning_lib.LossFn):
                                 transitions.next_observation)
       q_t_selector = network.apply(params, key, transitions.next_observation)
     else:
-      q_tm1 = network.apply(params, transitions.observation)
-      q_t_value = network.apply(target_params, transitions.next_observation)
-      q_t_selector = network.apply(params, transitions.next_observation)
+      fingerprints_batch = unbox_fingerprints(transitions.observation)
+      next_fingerprints_batch = unbox_fingerprints(transitions.next_observation)
 
-      # dc-molax: simulate n_actions: (bs, n_states_tp1, Q-val) -> (bs, Q-vals)
-      q_tm1 = jnp.squeeze(q_tm1)
-      q_t_value = jnp.squeeze(q_t_value)
-      q_t_selector = jnp.squeeze(q_t_selector)
+      bs, n_actions, _ = transitions.observation.shape  # (bs, obs_bs, fp_dim)
 
-      # assert jnp.all(q_t_selector >= 0.), 'losses: Not all q_t_selector >= 0.'
+      q_tm1 = jnp.empty((0, n_actions))
+      q_t_value = jnp.empty((0, n_actions))
+      q_t_selector = jnp.empty((0, n_actions))
+
+      # Reassemble the batch as (bs, n_actions)
+      for fps, next_fps in zip(fingerprints_batch, next_fingerprints_batch):
+        # (n_states_tp1, fp) -> (q_values_tp1, 1)
+        q_tm1_fps = network.apply(params, fps)
+        q_t_value_fps = network.apply(target_params, next_fps)
+        q_t_selector_fps = network.apply(params, next_fps)
+
+        # (q_values_tp1, 1) -> (q_values_tp1)
+        q_tm1_fps = jnp.squeeze(q_tm1_fps)
+        q_t_value_fps = jnp.squeeze(q_t_value_fps)
+        q_t_selector_fps = jnp.squeeze(q_t_selector_fps)
+
+        # Shape: (q_values_tp1) -> (n_actions)
+        #        n_actions = obs_bs = q_values_tp1 + -jnp.inf padding
+        # Padding: -inf ensure padding actions/states are not selected by argmax
+        actions = jnp.full((n_actions,), -jnp.inf, dtype=jnp.float32)
+
+        # _xxx: one single sample of the batch
+        _q_tm1 = actions.at[:len(q_tm1_fps)].set(q_tm1_fps)
+        _q_t_value = actions.at[:len(q_t_value_fps)].set(q_t_value_fps)
+        _q_t_selector = actions.at[:len(q_t_selector_fps)].set(q_t_selector_fps)
+
+        q_tm1 = jnp.vstack((q_tm1, _q_tm1))
+        q_t_value = jnp.vstack((q_t_value, _q_t_value))
+        q_t_selector = jnp.vstack((q_t_selector, _q_t_selector))
 
     # Cast and clip rewards.
     d_t = (transitions.discount * self.discount).astype(jnp.float32)

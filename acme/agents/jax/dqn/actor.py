@@ -100,12 +100,12 @@ def behavior_policy_fingerprint(network: networks_lib.FeedForwardNetwork
   def apply_and_sample(params: networks_lib.Params, key: networks_lib.PRNGKey,
                        observation: networks_lib.Observation, epsilon: Epsilon
                        ) -> networks_lib.Action:
-    ext_fingerprints = observation[:actor_mol_cfg.num_states_tp1]
-    action_values = network.apply(params, ext_fingerprints)
+    fingerprints_tp1 = observation[:actor_mol_cfg.num_states_tp1]
+    action_values = network.apply(params, fingerprints_tp1)
     action_values = jnp.squeeze(action_values)
 
     assert jnp.all(action_values), (  # This is unbelievable
-      '[molax|actor] Not all action_values are positive!')
+      '[molax|actor] Not all action_values are positive.')
 
     return rlax.epsilon_greedy(epsilon).sample(key, action_values)
 
