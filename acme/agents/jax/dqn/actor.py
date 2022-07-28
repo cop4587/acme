@@ -15,7 +15,7 @@
 """DQN actor helpers."""
 
 from typing import Callable, Sequence
-import numpy as np
+
 from acme.agents.jax import actor_core as actor_core_lib
 from acme.jax import networks as networks_lib
 from acme.jax import utils
@@ -23,17 +23,13 @@ import chex
 import jax
 import jax.numpy as jnp
 import rlax
-from acme.jax import utils
-from jax import lax
 from acme.agents.jax.dqn import actor_molecule_config as actor_mol_cfg
-import numpy as np
 
 Epsilon = float
 EpsilonPolicy = Callable[[
-                           networks_lib.Params, networks_lib.PRNGKey,
-                           networks_lib
-                             .Observation, Epsilon
-                         ], networks_lib.Action]
+    networks_lib.Params, networks_lib.PRNGKey, networks_lib
+    .Observation, Epsilon
+], networks_lib.Action]
 
 
 @chex.dataclass(frozen=True, mappable_dataclass=False)
@@ -70,8 +66,8 @@ def alternating_epsilons_actor_core(
     return EpsilonActorState(rng=random_key, epsilon=epsilon)
 
   return actor_core_lib.ActorCore(
-    init=policy_init, select_action=apply_and_sample,
-    get_extras=lambda _: None)
+      init=policy_init, select_action=apply_and_sample,
+      get_extras=lambda _: None)
 
 
 def behavior_policy(network: networks_lib.FeedForwardNetwork
@@ -120,7 +116,6 @@ def default_behavior_policy(network: networks_lib.FeedForwardNetwork,
   Returns:
     epsilon-greedy behavior policy with fixed epsilon
   """
-
   # TODO(lukstafi): remove this function and migrate its users.
 
   def apply_and_sample(params: networks_lib.Params, key: networks_lib.PRNGKey,
