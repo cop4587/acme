@@ -69,9 +69,6 @@ def alternating_epsilons_actor_core(
     epsilon = jax.random.choice(key, epsilons)
     return EpsilonActorState(rng=random_key, epsilon=epsilon)
 
-  def extras_fingerprint(state):
-    return actor_mol_cfg.num_states_tp1
-
   return actor_core_lib.ActorCore(
     init=policy_init, select_action=apply_and_sample,
     get_extras=lambda _: None)
