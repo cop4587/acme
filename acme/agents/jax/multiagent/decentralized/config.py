@@ -12,22 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Testing utilities."""
+"""Decentralized multiagent config."""
 
-import sys
-from typing import Optional
+import dataclasses
+from typing import Dict
 
-from absl import flags
-from absl.testing import parameterized
+from acme.multiagent import types
 
 
-class TestCase(parameterized.TestCase):
-  """A custom TestCase which handles FLAG parsing for pytest compatibility."""
-
-  def get_tempdir(self, name: Optional[str] = None) -> str:
-    try:
-      flags.FLAGS.test_tmpdir
-    except flags.UnparsedFlagAccessError:
-      # Need to initialize flags when running `pytest`.
-      flags.FLAGS(sys.argv, known_only=True)
-    return self.create_tempdir(name).full_path
+@dataclasses.dataclass
+class DecentralizedMultiagentConfig:
+  """Configuration options for decentralized multiagent."""
+  sub_agent_configs: Dict[types.AgentID, types.AgentConfig]
+  batch_size: int = 256
+  prefetch_size: int = 2

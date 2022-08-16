@@ -87,16 +87,20 @@ class R2D2Learner(acme.Learner):
     ) -> Tuple[jnp.ndarray, Tuple[jnp.ndarray, jnp.ndarray]]:
       """Computes mean transformed N-step loss for a batch of sequences."""
 
-      # Convert sample data to sequence-major format [T, B, ...].
-      data = utils.batch_to_sequence(sample.data)
-
       # Get core state & warm it up on observations for a burn-in period.
       if use_core_state:
         # Replay core state.
-        online_state = jax.tree_map(lambda x: x[0], data.extras['core_state'])
+        # NOTE: We may need to recover the type of the hk.LSTMState if the user
+        # specifies a dynamically unrolled RNN as it will strictly enforce the
+        # match between input/output state types.
+        online_state = utils.maybe_recover_lstm_type(
+            sample.data.extras.get('core_state'))
       else:
         online_state = initial_state
       target_state = online_state
+
+      # Convert sample data to sequence-major format [T, B, ...].
+      data = utils.batch_to_sequence(sample.data)
 
       # Maybe burn the core state in.
       if burn_in_length:
