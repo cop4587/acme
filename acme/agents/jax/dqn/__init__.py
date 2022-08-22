@@ -17,6 +17,7 @@
 from acme.agents.jax.dqn.actor import behavior_policy
 from acme.agents.jax.dqn.actor import behavior_policy_fingerprint
 from acme.agents.jax.dqn.actor import default_behavior_policy
+from acme.agents.jax.dqn.actor import DQNPolicy
 from acme.agents.jax.dqn.actor import Epsilon
 from acme.agents.jax.dqn.actor import EpsilonPolicy
 from acme.agents.jax.dqn.builder import DQNBuilder
