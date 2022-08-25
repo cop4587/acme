@@ -24,6 +24,7 @@ from acme.agents.jax import builders
 from acme.agents.jax.dqn import actor as dqn_actor
 from acme.agents.jax.dqn import config as dqn_config
 from acme.agents.jax.dqn import learning_lib
+from acme.agents.jax.dqn import networks as dqn_networks
 from acme.datasets import reverb as datasets
 from acme.jax import networks as networks_lib
 from acme.jax import utils
@@ -36,8 +37,8 @@ import reverb
 from reverb import rate_limiters
 
 
-class DQNBuilder(builders.ActorLearnerBuilder[networks_lib.FeedForwardNetwork,
-                                              dqn_actor.EpsilonPolicy,
+class DQNBuilder(builders.ActorLearnerBuilder[dqn_networks.DQNNetworks,
+                                              dqn_actor.DQNPolicy,
                                               reverb.ReplaySample]):
   """DQN Builder."""
 
@@ -59,7 +60,7 @@ class DQNBuilder(builders.ActorLearnerBuilder[networks_lib.FeedForwardNetwork,
   def make_learner(
       self,
       random_key: networks_lib.PRNGKey,
-      networks: networks_lib.FeedForwardNetwork,
+      networks: dqn_networks.DQNNetworks,
       dataset: Iterator[reverb.ReplaySample],
       logger_fn: loggers.LoggerFactory,
       environment_spec: Optional[specs.EnvironmentSpec],
@@ -69,7 +70,7 @@ class DQNBuilder(builders.ActorLearnerBuilder[networks_lib.FeedForwardNetwork,
     del environment_spec
 
     return learning_lib.SGDLearner(
-        network=networks,
+        network=networks.policy_network,
         random_key=random_key,
         optimizer=optax.adam(
             self._config.learning_rate, eps=self._config.adam_eps),
@@ -85,7 +86,7 @@ class DQNBuilder(builders.ActorLearnerBuilder[networks_lib.FeedForwardNetwork,
   def make_actor(
       self,
       random_key: networks_lib.PRNGKey,
-      policy: dqn_actor.EpsilonPolicy,
+      policy: dqn_actor.DQNPolicy,
       environment_spec: Optional[specs.EnvironmentSpec],
       variable_source: Optional[core.VariableSource] = None,
       adder: Optional[adders.Adder] = None,
@@ -95,12 +96,8 @@ class DQNBuilder(builders.ActorLearnerBuilder[networks_lib.FeedForwardNetwork,
     # Inference happens on CPU, so it's better to move variables there too.
     variable_client = variable_utils.VariableClient(
         variable_source, '', device='cpu')
-    epsilon = self._config.epsilon
-    epsilons = epsilon if epsilon is Sequence else (epsilon,)
-    actor_core = dqn_actor.alternating_epsilons_actor_core(
-        policy, epsilons=epsilons)
     return actors.GenericActor(
-        actor=actor_core,
+        actor=policy,
         random_key=random_key,
         variable_client=variable_client,
         adder=adder,
@@ -110,7 +107,7 @@ class DQNBuilder(builders.ActorLearnerBuilder[networks_lib.FeedForwardNetwork,
   def make_replay_tables(
       self,
       environment_spec: specs.EnvironmentSpec,
-      policy: dqn_actor.EpsilonPolicy,
+      policy: dqn_actor.DQNPolicy,
   ) -> List[reverb.Table]:
     """Creates reverb tables for the algorithm."""
     del policy
@@ -134,22 +131,37 @@ class DQNBuilder(builders.ActorLearnerBuilder[networks_lib.FeedForwardNetwork,
                 environment_spec))
     ]
 
+  @property
+  def batch_size_per_device(self) -> int:
+    """Splits the batch size across local devices."""
+    # Account for the number of SGD steps per step.
+    batch_size = self._config.batch_size * self._config.num_sgd_steps_per_step
+    batch_size = self._config.batch_size
+    num_devices = jax.local_device_count()
+    if batch_size % num_devices != 0:
+      raise ValueError(
+          'The DQN learner received a batch size that is not divisible by the '
+          f'number of available learner devices. Got: batch_size={batch_size}, '
+          f'num_devices={num_devices}.')
+    batch_size_per_device = batch_size // num_devices
+    return batch_size_per_device
+
   def make_dataset_iterator(
       self, replay_client: reverb.Client) -> Iterator[reverb.ReplaySample]:
     """Creates a dataset iterator to use for learning."""
     dataset = datasets.make_reverb_dataset(
         table=self._config.replay_table_name,
         server_address=replay_client.server_address,
-        batch_size=(self._config.batch_size *
-                    self._config.num_sgd_steps_per_step),
+        batch_size=self.batch_size_per_device,
         prefetch_size=self._config.prefetch_size)
-    return utils.device_put(dataset.as_numpy_iterator(), jax.devices()[0])
+    return utils.multi_device_put(dataset.as_numpy_iterator(),
+                                  jax.local_devices())
 
   def make_adder(
       self,
       replay_client: reverb.Client,
       environment_spec: Optional[specs.EnvironmentSpec],
-      policy: Optional[dqn_actor.EpsilonPolicy],
+      policy: Optional[dqn_actor.DQNPolicy],
   ) -> Optional[adders.Adder]:
     """Creates an adder which handles observations."""
     del environment_spec, policy
@@ -160,9 +172,17 @@ class DQNBuilder(builders.ActorLearnerBuilder[networks_lib.FeedForwardNetwork,
         discount=self._config.discount)
 
   def make_policy(self,
-                  networks: networks_lib.FeedForwardNetwork,
+                  networks: dqn_networks.DQNNetworks,
                   environment_spec: specs.EnvironmentSpec,
-                  evaluation: bool = False) -> dqn_actor.EpsilonPolicy:
+                  evaluation: bool = False) -> dqn_actor.DQNPolicy:
     """Creates the policy."""
-    del environment_spec, evaluation
-    return dqn_actor.behavior_policy(networks)
+    del environment_spec
+
+    if evaluation and self._config.eval_epsilon:
+      epsilon = self._config.eval_epsilon
+    else:
+      epsilon = self._config.epsilon
+    epsilons = epsilon if epsilon is Sequence else (epsilon,)
+
+    return dqn_actor.alternating_epsilons_actor_core(
+        dqn_actor.behavior_policy(networks), epsilons=epsilons)

@@ -25,6 +25,7 @@ from acme.jax.networks.base import LogProb
 from acme.jax.networks.base import LogProbFn
 from acme.jax.networks.base import LSTMOutputs
 from acme.jax.networks.base import NetworkOutput
+from acme.jax.networks.base import non_stochastic_network_to_typed
 from acme.jax.networks.base import Observation
 from acme.jax.networks.base import Params
 from acme.jax.networks.base import PolicyValueRNN
@@ -32,9 +33,11 @@ from acme.jax.networks.base import PRNGKey
 from acme.jax.networks.base import QNetwork
 from acme.jax.networks.base import RecurrentQNetwork
 from acme.jax.networks.base import SampleFn
+from acme.jax.networks.base import TypedFeedForwardNetwork
 from acme.jax.networks.base import Value
 from acme.jax.networks.continuous import LayerNormMLP
 from acme.jax.networks.continuous import NearZeroInitializedLinear
+from acme.jax.networks.distributional import CategoricalCriticHead
 from acme.jax.networks.distributional import CategoricalHead
 from acme.jax.networks.distributional import CategoricalValueHead
 from acme.jax.networks.distributional import DiscreteValued

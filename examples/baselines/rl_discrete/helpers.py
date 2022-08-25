@@ -16,11 +16,12 @@
 
 import functools
 import os
-from absl import flags
 
+from absl import flags
 from acme import specs
 from acme import wrappers
-from acme.jax import networks
+from acme.agents.jax import dqn
+from acme.jax import networks as networks_lib
 from acme.jax import utils
 import atari_py  # pylint:disable=unused-import
 import dm_env
@@ -61,16 +62,17 @@ def make_atari_environment(
 
 
 def make_dqn_atari_network(
-    environment_spec: specs.EnvironmentSpec) -> networks.FeedForwardNetwork:
+    environment_spec: specs.EnvironmentSpec) -> dqn.DQNNetworks:
   """Creates networks for training DQN on Atari."""
   def network(inputs):
     model = hk.Sequential([
-        networks.AtariTorso(),
+        networks_lib.AtariTorso(),
         hk.nets.MLP([512, environment_spec.actions.num_values]),
     ])
     return model(inputs)
   network_hk = hk.without_apply_rng(hk.transform(network))
   obs = utils.add_batch_dim(utils.zeros_like(environment_spec.observations))
-  return networks.FeedForwardNetwork(
-      init=lambda rng: network_hk.init(rng, obs),
-      apply=network_hk.apply)
+  network = networks_lib.FeedForwardNetwork(
+      init=lambda rng: network_hk.init(rng, obs), apply=network_hk.apply)
+  typed_network = networks_lib.non_stochastic_network_to_typed(network)
+  return dqn.DQNNetworks(policy_network=typed_network)
