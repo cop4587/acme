@@ -14,7 +14,7 @@
 
 """JAX multiagent builders."""
 
-from typing import Dict, Iterator, List, Optional, Sequence
+from typing import Dict, Iterator, List, Mapping, Optional, Sequence
 
 from acme import adders
 from acme import core
@@ -22,13 +22,14 @@ from acme import specs
 from acme import types
 from acme.agents.jax import builders as acme_builders
 from acme.agents.jax.multiagent.decentralized import actor
+from acme.agents.jax.multiagent.decentralized import factories as decentralized_factories
 from acme.agents.jax.multiagent.decentralized import learner_set
 from acme.jax import networks as networks_lib
 from acme.multiagent import types as ma_types
 from acme.multiagent import utils as ma_utils
 from acme.utils import counting
 from acme.utils import iterator_utils
-from acme.utils import loggers as acme_loggers
+from acme.utils import loggers
 import jax
 import reverb
 
@@ -54,16 +55,26 @@ class DecentralizedMultiAgentBuilder(
         ma_types.MultiAgentSample]):
   """Builder for decentralized multiagent setup."""
 
-  def __init__(self, builders: Dict[ma_types.AgentID,
-                                    acme_builders.GenericActorLearnerBuilder]):
+  def __init__(
+      self,
+      agent_types: Dict[ma_types.AgentID, ma_types.GenericAgent],
+      agent_configs: Dict[ma_types.AgentID, ma_types.AgentConfig],
+      init_policy_network_fn: Optional[ma_types.InitPolicyNetworkFn] = None):
     """Initializer.
 
     Args:
-      builders: a dict specifying the builders for all sub-agents.
+      agent_types: Dict mapping agent IDs to their types.
+      agent_configs: Dict mapping agent IDs to their configs.
+      init_policy_network_fn: Optional custom policy network initializer
+        function.
     """
 
-    self._builders = builders
+    self._agent_types = agent_types
+    self._agent_configs = agent_configs
+    self._builders = decentralized_factories.builder_factory(
+        agent_types, agent_configs)
     self._num_agents = len(self._builders)
+    self._init_policy_network_fn = init_policy_network_fn
 
   def make_replay_tables(
       self,
@@ -101,7 +112,7 @@ class DecentralizedMultiAgentBuilder(
       random_key: networks_lib.PRNGKey,
       networks: ma_types.MultiAgentNetworks,
       dataset: Iterator[ma_types.MultiAgentSample],
-      logger_fn: acme_loggers.LoggerFactory,
+      logger_fn: loggers.LoggerFactory,
       environment_spec: Optional[specs.EnvironmentSpec] = None,
       replay_client: Optional[reverb.Client] = None,
       counter: Optional[counting.Counter] = None
@@ -120,25 +131,31 @@ class DecentralizedMultiAgentBuilder(
       counter: a Counter which allows for recording of counts (learner steps,
         actor steps, etc.) distributed throughout the agent.
     """
-    def _make_logger_fn(agent_id: ma_types.AgentID):
-      """Returns agent logger function while avoiding cell-var-from-loop bugs."""
-      return (
-          lambda label, steps_key=None, task_instance=None: loggers[agent_id])  # pytype: disable=unsupported-operands
-
-    loggers = logger_fn(label='')  # label is unused at the parent level
-    if loggers is None:
-      loggers = {k: None for k in self._builders.keys()}
+    parent_counter = counter or counting.Counter()
     sub_learners = {}
     unzipped_dataset = iterator_utils.unzip_iterators(
         dataset, num_sub_iterators=self._num_agents)
+
+    def make_logger_fn(agent_id: str) -> loggers.LoggerFactory:
+      """Returns a logger factory for the subagent with the given id."""
+
+      def logger_factory(
+          label: loggers.LoggerLabel,
+          steps_key: Optional[loggers.LoggerStepsKey] = None,
+          instance: Optional[loggers.TaskInstance] = None) -> loggers.Logger:
+        return logger_fn(f'{label}{agent_id}', steps_key, instance)
+
+      return logger_factory
+
     for i_dataset, (agent_id, builder) in enumerate(self._builders.items()):
+      counter = counting.Counter(parent_counter, prefix=f'{agent_id}')
       single_agent_spec = ma_utils.get_agent_spec(environment_spec, agent_id)
       random_key, learner_key = jax.random.split(random_key)
       sub_learners[agent_id] = builder.make_learner(
           learner_key,
           networks[agent_id],
           unzipped_dataset[i_dataset],
-          logger_fn=_make_logger_fn(agent_id),
+          logger_fn=make_logger_fn(agent_id),
           environment_spec=single_agent_spec,
           replay_client=replay_client,
           counter=counter)
@@ -146,10 +163,11 @@ class DecentralizedMultiAgentBuilder(
         sub_learners, separator=VARIABLE_SEPARATOR)
 
   def make_adder(  # Internal pytype check.
-      self, replay_client: reverb.Client,
+      self,
+      replay_client: reverb.Client,
       environment_spec: Optional[specs.EnvironmentSpec] = None,
       policy: Optional[ma_types.MultiAgentPolicyNetworks] = None,
-  ) -> Dict[ma_types.AgentID, Optional[adders.Adder]]:
+  ) -> Mapping[ma_types.AgentID, Optional[adders.Adder]]:
     del environment_spec, policy  # Unused.
     return {
         agent_id:
@@ -157,19 +175,19 @@ class DecentralizedMultiAgentBuilder(
         for agent_id, b in self._builders.items()
     }
 
-  def make_actor(
+  def make_actor(  # Internal pytype check.
       self,
       random_key: networks_lib.PRNGKey,
-      policy_networks: ma_types.MultiAgentPolicyNetworks,
+      policy: ma_types.MultiAgentPolicyNetworks,
       environment_spec: specs.EnvironmentSpec,
       variable_source: Optional[core.VariableSource] = None,
-      adder: Optional[Dict[ma_types.AgentID, adders.Adder]] = None,
+      adder: Optional[Mapping[ma_types.AgentID, adders.Adder]] = None,
   ) -> core.Actor:
     """Returns simultaneous-acting multiagent actor instance.
 
     Args:
       random_key: random key.
-      policy_networks: dict of policy networks, one for each actor. Networks can
+      policy: dict of policies, one for each actor. Policies can
         be heterogeneous (i.e., distinct in architecture) across actors.
       environment_spec: the (multiagent) environment spec, which will be
         factorized into single-agent specs for replay table initialization.
@@ -178,7 +196,7 @@ class DecentralizedMultiAgentBuilder(
       adder: how data is recorded (e.g., added to replay) for each actor.
     """
     if adder is None:
-      adder = {agent_id: None for agent_id in policy_networks.keys()}
+      adder = {agent_id: None for agent_id in policy.keys()}
 
     sub_actors = {}
     for agent_id, builder in self._builders.items():
@@ -188,9 +206,21 @@ class DecentralizedMultiAgentBuilder(
       # sub-learner is queried for variables.
       sub_variable_source = PrefixedVariableSource(
           variable_source, f'{agent_id}{VARIABLE_SEPARATOR}')
-      sub_actors[agent_id] = builder.make_actor(actor_key,
-                                                policy_networks[agent_id],
+      sub_actors[agent_id] = builder.make_actor(actor_key, policy[agent_id],
                                                 single_agent_spec,
                                                 sub_variable_source,
                                                 adder[agent_id])
     return actor.SimultaneousActingMultiAgentActor(sub_actors)
+
+  def make_policy(
+      self,
+      networks: ma_types.MultiAgentNetworks,
+      environment_spec: specs.EnvironmentSpec,
+      evaluation: bool = False) -> ma_types.MultiAgentPolicyNetworks:
+    return decentralized_factories.policy_network_factory(
+        networks,
+        environment_spec,
+        self._agent_types,
+        self._agent_configs,
+        eval_mode=evaluation,
+        init_policy_network_fn=self._init_policy_network_fn)

@@ -36,6 +36,9 @@ def make_atari_environment(
     sticky_actions: bool = True,
     zero_discount_on_life_loss: bool = False,
     oar_wrapper: bool = False,
+    num_stacked_frames: int = 4,
+    flatten_frame_stack: bool = False,
+    grayscaling: bool = True,
 ) -> dm_env.Environment:
   """Loads the Atari environment."""
 # Internal logic.
@@ -49,6 +52,9 @@ def make_atari_environment(
           wrappers.AtariWrapper,
           to_float=True,
           max_episode_len=108_000,
+          num_stacked_frames=num_stacked_frames,
+          flatten_frame_stack=flatten_frame_stack,
+          grayscaling=grayscaling,
           zero_discount_on_life_loss=zero_discount_on_life_loss,
       ),
       wrappers.SinglePrecisionWrapper,

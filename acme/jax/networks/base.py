@@ -17,8 +17,10 @@
 import dataclasses
 from typing import Callable, Optional, Protocol, Tuple
 
+from acme import specs
 from acme import types
 from acme.jax import types as jax_types
+from acme.jax import utils as jax_utils
 import haiku as hk
 import jax.numpy as jnp
 
@@ -27,6 +29,7 @@ import jax.numpy as jnp
 PRNGKey = jax_types.PRNGKey
 
 # Commonly-used types.
+BatchSize = int
 Observation = types.NestedArray
 Action = types.NestedArray
 Params = types.NestedArray
@@ -35,6 +38,7 @@ QValues = jnp.ndarray
 Logits = jnp.ndarray
 LogProb = jnp.ndarray
 Value = jnp.ndarray
+RecurrentState = types.NestedArray
 
 # Commonly-used function/network signatures.
 QNetwork = Callable[[Observation], QValues]
@@ -108,3 +112,46 @@ def non_stochastic_network_to_typed(
     return network.apply(params, observation, *args, **kwargs)
 
   return TypedFeedForwardNetwork(init=network.init, apply=apply)
+
+
+@dataclasses.dataclass
+class UnrollableNetwork:
+  """Network that can unroll over an input sequence."""
+  init: Callable[[PRNGKey], Params]
+  apply: Callable[[Params, PRNGKey, Observation, RecurrentState],
+                  Tuple[NetworkOutput, RecurrentState]]
+  unroll: Callable[[Params, PRNGKey, Observation, RecurrentState],
+                   Tuple[NetworkOutput, RecurrentState]]
+  init_recurrent_state: Callable[[PRNGKey, Optional[BatchSize]], RecurrentState]
+  # TODO(b/244311990): Consider supporting parameterized and learnable initial
+  # state functions.
+
+
+def make_unrollable_network(
+    environment_spec: specs.EnvironmentSpec,
+    make_core_module: Callable[[], hk.RNNCore]) -> UnrollableNetwork:
+  """Builds an UnrollableNetwork from a hk.Module factory."""
+
+  dummy_observation = jax_utils.zeros_like(environment_spec.observations)
+
+  def make_unrollable_network_functions():
+    model = make_core_module()
+    apply = model.__call__
+
+    def init() -> Tuple[NetworkOutput, RecurrentState]:
+      return model(dummy_observation, model.initial_state(None))
+
+    return init, (apply, model.unroll, model.initial_state)
+
+  # Transform and unpack pure functions
+  f = hk.multi_transform(make_unrollable_network_functions)
+  apply, unroll, initial_state_fn = f.apply
+
+  def init_recurrent_state(key: jax_types.PRNGKey,
+                           batch_size: Optional[int]) -> RecurrentState:
+    # TODO(b/244311990): Consider supporting parameterized and learnable initial
+    # state functions.
+    no_params = None
+    return initial_state_fn(no_params, key, batch_size)
+
+  return UnrollableNetwork(f.init, apply, unroll, init_recurrent_state)

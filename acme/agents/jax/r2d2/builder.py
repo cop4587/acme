@@ -95,7 +95,7 @@ def _zero_pad(sequence_length: int) -> datasets.Transform:
 
 
 def _make_adder_config(step_spec: reverb_base.Step, seq_len: int,
-                       seq_period: int) -> list[sw.Config]:
+                       seq_period: int) -> List[sw.Config]:
   return structured.create_sequence_config(
       step_spec=step_spec,
       sequence_length=seq_len,
@@ -142,8 +142,7 @@ class R2D2Builder(Generic[actor_core_lib.RecurrentState],
 
     # The learner updates the parameters (and initializes them).
     return r2d2_learning.R2D2Learner(
-        unroll=networks.unroll,
-        initial_state=networks.initial_state,
+        networks=networks,
         batch_size=self._batch_size_per_device,
         random_key=random_key,
         burn_in_length=self._config.burn_in_length,
