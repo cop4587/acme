@@ -16,7 +16,7 @@
 
 import dataclasses
 import functools
-from typing import Any, Callable, Generic, Iterator, List, Optional, Tuple
+from typing import Any, Callable, Generic, Iterator, List, Optional, Protocol, Tuple
 
 import acme
 from acme import adders
@@ -241,3 +241,104 @@ class NormalizationBuilder(Generic[Networks, PolicyNetwork],
         networks=networks,
         environment_spec=environment_spec,
         evaluation=evaluation)
+
+
+@dataclasses.dataclass(frozen=True)
+class NormalizationConfig:
+  """Configuration for normalization based on running statistics.
+
+  Attributes:
+    max_abs: Maximum value for clipping.
+    statistics_update_period: How often to update running statistics used for
+      normalization.
+  """
+  max_abs: int = 10
+  statistics_update_period: int = 100
+
+
+class InputNormalizerConfig(Protocol):
+  """Protocol for the config of the agent that uses the normalization decorator.
+
+  If the agent builder is decorated with the `input_normalization_builder`
+  the agent config class must implement this protocol.
+  """
+
+  @property
+  def input_normalization(self) -> Optional[NormalizationConfig]:
+    ...
+
+
+def input_normalization_builder(
+    actor_learner_builder_class: Callable[[InputNormalizerConfig],
+                                          builders.ActorLearnerBuilder]):
+  """Builder class decorator that adds support for input normalization."""
+
+  # TODO(b/247075349): find a way to use ActorLearnerBuilderWrapper here.
+  class InputNormalizationBuilder(
+      Generic[builders.Networks, builders.Policy, builders.Sample],
+      builders.ActorLearnerBuilder[builders.Networks, builders.Policy,
+                                   builders.Sample]):
+    """Builder wrapper that adds input normalization based on the config."""
+
+    def __init__(self, config: InputNormalizerConfig):
+      builder = actor_learner_builder_class(config)
+      if config.input_normalization:
+        builder = NormalizationBuilder(
+            builder,
+            max_abs_observation=config.input_normalization.max_abs,
+            statistics_update_period=config.input_normalization
+            .statistics_update_period)
+      self.wrapped = builder
+
+    def make_replay_tables(
+        self,
+        environment_spec: specs.EnvironmentSpec,
+        policy: builders.Policy,
+    ) -> List[reverb.Table]:
+      return self.wrapped.make_replay_tables(environment_spec, policy)
+
+    def make_dataset_iterator(
+        self,
+        replay_client: reverb.Client,
+    ) -> Iterator[builders.Sample]:
+      return self.wrapped.make_dataset_iterator(replay_client)
+
+    def make_adder(
+        self,
+        replay_client: reverb.Client,
+        environment_spec: Optional[specs.EnvironmentSpec],
+        policy: Optional[builders.Policy],
+    ) -> Optional[adders.Adder]:
+      return self.wrapped.make_adder(replay_client, environment_spec, policy)
+
+    def make_actor(
+        self,
+        random_key: networks_lib.PRNGKey,
+        policy: builders.Policy,
+        environment_spec: specs.EnvironmentSpec,
+        variable_source: Optional[core.VariableSource] = None,
+        adder: Optional[adders.Adder] = None,
+    ) -> core.Actor:
+      return self.wrapped.make_actor(random_key, policy, environment_spec,
+                                     variable_source, adder)
+
+    def make_learner(
+        self,
+        random_key: networks_lib.PRNGKey,
+        networks: Networks,
+        dataset: Iterator[builders.Sample],
+        logger_fn: loggers.LoggerFactory,
+        environment_spec: specs.EnvironmentSpec,
+        replay_client: Optional[reverb.Client] = None,
+        counter: Optional[counting.Counter] = None,
+    ) -> core.Learner:
+      return self.wrapped.make_learner(random_key, networks, dataset, logger_fn,
+                                       environment_spec, replay_client, counter)
+
+    def make_policy(self,
+                    networks: builders.Networks,
+                    environment_spec: specs.EnvironmentSpec,
+                    evaluation: bool = False) -> builders.Policy:
+      return self.wrapped.make_policy(networks, environment_spec, evaluation)
+
+  return InputNormalizationBuilder

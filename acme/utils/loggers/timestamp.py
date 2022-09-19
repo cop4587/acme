@@ -12,3 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Timestamp logger."""
+
+import time
+
+from acme.utils.loggers import base
+
+
+class TimestampLogger(base.Logger):
+  """Logger which populates the timestamp key with the current timestamp."""
+
+  def __init__(self, logger: base.Logger, timestamp_key: str):
+    self._logger = logger
+    self._timestamp_key = timestamp_key
+
+  def write(self, values: base.LoggingData):
+    values = dict(values)
+    values[self._timestamp_key] = time.time()
+    self._logger.write(values)
+
+  def close(self):
+    self._logger.close()
