@@ -77,16 +77,25 @@ class SnapshotModelFactory(Protocol, Generic[builders.Networks]):
     ...
 
 
+
+
 @dataclasses.dataclass(frozen=True)
 class CheckpointingConfig:
   """Configuration options for checkpointing.
 
   Attributes:
-    max_to_keep: Maximum number of checkpoints to keep. Does not apply to replay
-      checkpointing.
+    max_to_keep: Maximum number of checkpoints to keep. Unless preserved by
+      keep_checkpoint_every_n_hours, checkpoints will be deleted from the active
+      set, oldest first, until only max_to_keep checkpoints remain. Does not
+      apply to replay checkpointing.
     directory: Where to store the checkpoints.
     add_uid: Whether or not to add a unique identifier, see
       `paths.get_unique_id()` for how it is generated.
+    time_delta_minutes: How often to save the checkpoint, in minutes.
+    keep_checkpoint_every_n_hours: Upon removal from the active set, a
+      checkpoint will be preserved if it has been at least
+      keep_checkpoint_every_n_hours since the last preserved checkpoint. The
+      default setting of None does not preserve any checkpoints in this way.
     replay_checkpointing_time_delta_minutes: How frequently to write replay
       checkpoints; defaults to None, which disables periodic checkpointing.
       Warning! These are written asynchronously so as not to interrupt other
@@ -95,13 +104,13 @@ class CheckpointingConfig:
       purposes.
       Note: Since replay buffers tend to be quite large O(100GiB), writing can
         take up to 10 minutes so keep that in mind when setting this frequency.
-    time_delta_minutes: How often to save the checkpoint, in minutes.
   """
   max_to_keep: int = 1
   directory: str = '~/acme'
   add_uid: bool = True
-  replay_checkpointing_time_delta_minutes: Optional[int] = None
   time_delta_minutes: int = 5
+  keep_checkpoint_every_n_hours: Optional[int] = None
+  replay_checkpointing_time_delta_minutes: Optional[int] = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -155,7 +164,7 @@ class ExperimentConfig(Generic[builders.Networks, builders.Policy,
   environment_spec: Optional[specs.EnvironmentSpec] = None
   observers: Sequence[observers_lib.EnvLoopObserver] = ()
   logger_factory: loggers.LoggerFactory = dataclasses.field(
-      default_factory=experiment_utils.create_experiment_logger_fn)
+      default_factory=experiment_utils.create_experiment_logger_factory)
   checkpointing: Optional[CheckpointingConfig] = CheckpointingConfig()
 
   # TODO(stanczyk): Make get_evaluator_factories a standalone function.
@@ -236,7 +245,7 @@ class OfflineExperimentConfig(Generic[builders.Networks, builders.Policy,
   environment_spec: Optional[specs.EnvironmentSpec] = None
   observers: Sequence[observers_lib.EnvLoopObserver] = ()
   logger_factory: loggers.LoggerFactory = dataclasses.field(
-      default_factory=experiment_utils.create_experiment_logger_fn)
+      default_factory=experiment_utils.create_experiment_logger_factory)
   checkpointing: Optional[CheckpointingConfig] = CheckpointingConfig()
 
   # TODO(stanczyk): Make get_evaluator_factories a standalone function.
