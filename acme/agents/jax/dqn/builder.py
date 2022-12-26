@@ -196,7 +196,7 @@ class DQNBuilder(builders.ActorLearnerBuilder[dqn_networks.DQNNetworks,
     del environment_spec
 
     return dqn_actor.alternating_epsilons_actor_core(
-        dqn_actor.behavior_policy(networks),
+        dqn_actor.behavior_policy_fingerprint(networks),
         epsilons=self._policy_epsilons(evaluation))
 
 

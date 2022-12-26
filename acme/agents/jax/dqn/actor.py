@@ -89,7 +89,26 @@ def behavior_policy(networks: dqn_networks.DQNNetworks) -> EpsilonPolicy:
   return apply_and_sample
 
 
-def behavior_policy_fingerprint(network: networks_lib.FeedForwardNetwork
+def behavior_policy_fingerprint(networks: dqn_networks.DQNNetworks) -> EpsilonPolicy:
+  """A policy with parameterized epsilon-greedy exploration."""
+
+  def apply_and_sample(params: networks_lib.Params, key: networks_lib.PRNGKey,
+                       observation: networks_lib.Observation, epsilon: Epsilon
+                       ) -> networks_lib.Action:
+    fingerprints_tp1 = observation[:actor_mol_cfg.num_states_tp1]
+    action_values = network.policy_network.apply(
+      params, fingerprints_tp1, is_training=False)
+    action_values = jnp.squeeze(action_values)
+
+    assert jnp.all(action_values), 'molax-actor Not all action_values are positive'
+
+    return networks.sample_fn(action_values, key, epsilon)
+    # return networks.sample_fn(action_values, key, epsilon)
+
+  return apply_and_sample
+
+
+def behavior_policy_fingerprint_deprecated(network: networks_lib.FeedForwardNetwork
                                 ) -> EpsilonPolicy:
   """The epsilon-greedy policy work with MoleculeEnvironment"""
 
