@@ -196,7 +196,8 @@ class DQNBuilder(builders.ActorLearnerBuilder[dqn_networks.DQNNetworks,
     del environment_spec
 
     return dqn_actor.alternating_epsilons_actor_core(
-        dqn_actor.behavior_policy_fingerprint(networks),
+        # dqn_actor.behavior_policy_fingerprint(networks),
+        dqn_actor.behavior_policy(networks),
         epsilons=self._policy_epsilons(evaluation))
 
 
@@ -218,7 +219,7 @@ class DistributionalDQNBuilder(DQNBuilder):
     Args:
       networks: struct describing the networks needed to generate the policy.
       environment_spec: struct describing the specs of the environment.
-      evaluation: when true, a version of the policy to use for evaluation
+          evaluation: when true, a version of the policy to use for evaluation
         should be returned. This is algorithm-specific so if an algorithm makes
         no distinction between behavior and evaluation policies this boolean may
         be ignored.
