@@ -96,7 +96,7 @@ def behavior_policy_fingerprint(networks: dqn_networks.DQNNetworks) -> EpsilonPo
                        observation: networks_lib.Observation, epsilon: Epsilon
                        ) -> networks_lib.Action:
     fingerprints_tp1 = observation[:actor_mol_cfg.num_states_tp1]
-    action_values = network.policy_network.apply(
+    action_values = networks.policy_network.apply(
       params, fingerprints_tp1, is_training=False)
     action_values = jnp.squeeze(action_values)
 
@@ -108,23 +108,23 @@ def behavior_policy_fingerprint(networks: dqn_networks.DQNNetworks) -> EpsilonPo
   return apply_and_sample
 
 
-def behavior_policy_fingerprint_deprecated(network: networks_lib.FeedForwardNetwork
-                                ) -> EpsilonPolicy:
-  """The epsilon-greedy policy work with MoleculeEnvironment"""
-
-  def apply_and_sample(params: networks_lib.Params, key: networks_lib.PRNGKey,
-                       observation: networks_lib.Observation, epsilon: Epsilon
-                       ) -> networks_lib.Action:
-    fingerprints_tp1 = observation[:actor_mol_cfg.num_states_tp1]
-    action_values = network.apply(params, fingerprints_tp1)
-    action_values = jnp.squeeze(action_values)
-
-    assert jnp.all(action_values), (  # This is unbelievable
-      '[molax|actor] Not all action_values are positive.')
-
-    return rlax.epsilon_greedy(epsilon).sample(key, action_values)
-
-  return apply_and_sample
+# def behavior_policy_fingerprint_deprecated(network: networks_lib.FeedForwardNetwork
+#                                 ) -> EpsilonPolicy:
+#   """The epsilon-greedy policy work with MoleculeEnvironment"""
+#
+#   def apply_and_sample(params: networks_lib.Params, key: networks_lib.PRNGKey,
+#                        observation: networks_lib.Observation, epsilon: Epsilon
+#                        ) -> networks_lib.Action:
+#     fingerprints_tp1 = observation[:actor_mol_cfg.num_states_tp1]
+#     action_values = network.apply(params, fingerprints_tp1)
+#     action_values = jnp.squeeze(action_values)
+#
+#     assert jnp.all(action_values), (  # This is unbelievable
+#       '[molax|actor] Not all action_values are positive.')
+#
+#     return rlax.epsilon_greedy(epsilon).sample(key, action_values)
+#
+#   return apply_and_sample
 
 
 
