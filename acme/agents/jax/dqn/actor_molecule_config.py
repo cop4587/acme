@@ -3,4 +3,4 @@
 import jax.numpy as jnp
 from jax import tree_util
 
-num_states_tp1: int = 0
+nof_states_tp1: int = 0

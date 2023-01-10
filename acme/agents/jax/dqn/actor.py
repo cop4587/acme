@@ -95,7 +95,7 @@ def behavior_policy_fingerprint(networks: dqn_networks.DQNNetworks) -> EpsilonPo
   def apply_and_sample(params: networks_lib.Params, key: networks_lib.PRNGKey,
                        observation: networks_lib.Observation, epsilon: Epsilon
                        ) -> networks_lib.Action:
-    fingerprints_tp1 = observation[:actor_mol_cfg.num_states_tp1]
+    fingerprints_tp1 = observation[:actor_mol_cfg.nof_states_tp1]
     action_values = networks.policy_network.apply(
       params, fingerprints_tp1, is_training=False)
     action_values = jnp.squeeze(action_values)
