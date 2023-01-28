@@ -107,11 +107,6 @@ def make_distributed_experiment(
         f'{multithreading_colocate_learner_and_reverb}'
         f'\tnum_learner_nodes={num_learner_nodes}.')
 
-  assert not (inference_server_config and variable_cache_config), (
-      'When using inference servers, learner variables are not pulled by the '
-      'actors. Hence, inference servers and variable caching should not be '
-      'used simultaneously.'
-  )
 
   def build_replay():
     """The replay storage."""
@@ -154,6 +149,7 @@ def make_distributed_experiment(
           add_uid=checkpointing.add_uid,
           max_to_keep=checkpointing.max_to_keep,
           keep_checkpoint_every_n_hours=checkpointing.keep_checkpoint_every_n_hours,
+          checkpoint_ttl_seconds=checkpointing.checkpoint_ttl_seconds,
       )
     return counter
 
@@ -195,6 +191,7 @@ def make_distributed_experiment(
             add_uid=checkpointing.add_uid,
             max_to_keep=checkpointing.max_to_keep,
             keep_checkpoint_every_n_hours=checkpointing.keep_checkpoint_every_n_hours,
+            checkpoint_ttl_seconds=checkpointing.checkpoint_ttl_seconds,
         )
       else:
         learner.restore(primary_learner.save())
