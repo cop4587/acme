@@ -93,12 +93,13 @@ class SGDLearner(acme.Learner):
 
     # Internalize the loss_fn with network.
     # self._loss = jax.jit(functools.partial(loss_fn, self.network))
-    self._loss = functools.partial(loss_fn, self.network)
+    self._loss = functools.partial(loss_fn, self.network)  # for molax
 
     # SGD performs the loss, optimizer update and periodic target net update.
     def sgd_step(state: TrainingState,
                  batch: reverb.ReplaySample) -> Tuple[TrainingState, LossExtra]:
-      next_rng_key, rng_key = jax.random.split(state.rng_key)
+      state_rng_key = jnp.squeeze(state.rng_key)  # for molax
+      next_rng_key, rng_key = jax.random.split(state_rng_key)
       # Implements one SGD step of the loss and updates training state
       (loss, extra), grads = jax.value_and_grad(
           self._loss, has_aux=True)(state.params, state.target_params, batch,
@@ -132,7 +133,7 @@ class SGDLearner(acme.Learner):
     self._num_sgd_steps_per_step = num_sgd_steps_per_step
     sgd_step = utils.process_multiple_batches(sgd_step, num_sgd_steps_per_step,
                                               postprocess_aux)
-    self._sgd_step = sgd_step
+    self._sgd_step = sgd_step  # for molax
     # self._sgd_step = jax.pmap(
     #     sgd_step, axis_name=PMAP_AXIS_NAME, devices=jax.devices())
 
