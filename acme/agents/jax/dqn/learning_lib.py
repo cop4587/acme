@@ -104,9 +104,10 @@ class SGDLearner(acme.Learner):
       (loss, extra), grads = jax.value_and_grad(
           self._loss, has_aux=True)(state.params, state.target_params, batch, rng_key)
 
-      loss = jax.lax.pmean(loss, axis_name=PMAP_AXIS_NAME)
+      # Fix: for molax: postprocess_aux disabled pmap(sgd_step), so comment out all pxxx
+      # loss = jax.lax.pmean(loss, axis_name=PMAP_AXIS_NAME)
       # Average gradients over pmap replicas before optimizer update.
-      grads = jax.lax.pmean(grads, axis_name=PMAP_AXIS_NAME)
+      # grads = jax.lax.pmean(grads, axis_name=PMAP_AXIS_NAME)
       # Apply the optimizer updates
       updates, new_opt_state = optimizer.update(grads, state.opt_state)
       new_params = optax.apply_updates(state.params, updates)
@@ -114,7 +115,7 @@ class SGDLearner(acme.Learner):
       extra.metrics.update({'total_loss': loss})
 
       # Periodically update target networks.
-      steps = state.steps + 1
+      steps = int(state.steps + 1)  # Fix: for molax: cast Array to int for lax.cond
       target_params = optax.periodic_update(new_params, state.target_params,
                                             steps, target_update_period)
 
@@ -133,8 +134,7 @@ class SGDLearner(acme.Learner):
     sgd_step = utils.process_multiple_batches(sgd_step, num_sgd_steps_per_step,
                                               postprocess_aux)
     self._sgd_step = sgd_step  # for molax
-    # self._sgd_step = jax.pmap(
-    #     sgd_step, axis_name=PMAP_AXIS_NAME, devices=jax.devices())
+    # self._sgd_step = jax.pmap(sgd_step, axis_name=PMAP_AXIS_NAME, devices=jax.devices())
 
     # Internalise agent components
     self._data_iterator = data_iterator
