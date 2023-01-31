@@ -106,6 +106,7 @@ class SGDLearner(acme.Learner):
 
       # Fix: for molax: postprocess_aux disabled pmap(sgd_step), so comment out all pxxx
       # loss = jax.lax.pmean(loss, axis_name=PMAP_AXIS_NAME)
+      loss = jnp.array([loss])
       # Average gradients over pmap replicas before optimizer update.
       # grads = jax.lax.pmean(grads, axis_name=PMAP_AXIS_NAME)
       # Apply the optimizer updates
@@ -115,9 +116,10 @@ class SGDLearner(acme.Learner):
       extra.metrics.update({'total_loss': loss})
 
       # Periodically update target networks.
-      steps = int(state.steps + 1)  # Fix: for molax: cast Array to int for lax.cond
+      steps = state.steps + 1
+      # Fix: for molax: cast steps to int for lax.cond
       target_params = optax.periodic_update(new_params, state.target_params,
-                                            steps, target_update_period)
+                                            int(steps), target_update_period)
 
       new_training_state = TrainingState(
           new_params, target_params, new_opt_state, steps, next_rng_key)
@@ -187,6 +189,10 @@ class SGDLearner(acme.Learner):
       batch: reverb.ReplaySample = prefetching_split.device
 
       self._state, extra = self._sgd_step(self._state, batch)
+      # Fix: for molax: after process_one_batch, extra was squeezed to float
+      extra = LossExtra(metrics={'total_loss': jnp.array([extra.metrics['total_loss']])},
+                        reverb_priorities=extra.reverb_priorities)
+
       # Compute elapsed time.
       timestamp = time.time()
       elapsed = timestamp - self._timestamp if self._timestamp else 0
