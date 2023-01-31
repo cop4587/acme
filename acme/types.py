@@ -49,7 +49,7 @@ class Batches(int):
       # ...
 
       # Convert the replay size at runtime.
-      if isinstance(config.replay_size, Batches):
+      if isinstance(configbatch.data = {Transition: 6} Transition(observation=Array([[[[0., 1., 0., ..., 0., 0., 1.],\n         [0., 1., 0., ..., 0., 0., 1.],\n         [0., 0., 0., ..., 0., 0., 1.],\n         ...,\n         [0., 0., 0., ..., 0., 0., 0.],\n         [0., 0., 0., ..., 0., 0., 0.],\n         [0., 0., 0... View.replay_size, Batches):
         config.replay_size = config.replay_size * config.batch_size  # int: 128
 
   """

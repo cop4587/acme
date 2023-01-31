@@ -51,11 +51,11 @@ class PrioritizedDoubleQLearning(learning_lib.LossFn):
     # Forward pass.
     key1, key2, key3 = jax.random.split(key, 3)
     q_tm1 = network.apply(
-        params, transitions.observation, is_training=True, key=key1)
+      params, transitions.observation, is_training=True, key=key1)
     q_t_value = network.apply(
-        target_params, transitions.next_observation, is_training=True, key=key2)
+      target_params, transitions.next_observation, is_training=True, key=key2)
     q_t_selector = network.apply(
-        params, transitions.next_observation, is_training=True, key=key3)
+      params, transitions.next_observation, is_training=True, key=key3)
 
     # Cast and clip rewards.
     d_t = (transitions.discount * self.discount).astype(jnp.float32)
@@ -76,7 +76,7 @@ class PrioritizedDoubleQLearning(learning_lib.LossFn):
     # Reweight.
     loss = jnp.mean(importance_weights * batch_loss)  # []
     extra = learning_lib.LossExtra(
-        metrics={}, reverb_priorities=jnp.abs(td_error).astype(jnp.float64))
+      metrics={}, reverb_priorities=jnp.abs(td_error).astype(jnp.float64))
     return loss, extra
 
 
@@ -100,52 +100,72 @@ class PrioritizedDoubleQLearningFingerprint(learning_lib.LossFn):
     """Calculate a loss on a single batch of data."""
 
     def unbox_fingerprints(observation_batch):
-      fps_batch = []
+      fprts_batch = []  # list supports varying-len vector as element
       for obs in observation_batch:
-        n_fps = len(np.unique(obs, axis=0)) - 1  # ignore last zero-padding row
-        fps_batch.append(obs[:n_fps])  # only list support varying in len vector
-      return fps_batch  # (bs, n_states_tp1)
+        fprts_idx = len(np.unique(obs, axis=0)) - 1
+        fprts_batch.append(obs[:fprts_idx])
+      return fprts_batch  # shape (bs, n_states_tp1)
 
-    transitions: types.Transition = batch.data
+    def squeeze_dict(d):
+      # remove axis 0 of values recursively
+      return {name:
+                {wb: jnp.squeeze(arr, axis=0) for wb, arr in layer.items()}
+              for name, layer in d.items()}
+
+    def squeeze_transition(t):
+      return types.Transition(
+        observation=jnp.squeeze(t.observation, axis=0),
+        action=jnp.squeeze(t.action, axis=0),
+        reward=jnp.squeeze(t.reward, axis=0),
+        discount=jnp.squeeze(t.discount, axis=0),
+        next_observation=jnp.squeeze(t.next_observation, axis=0),
+        extras=t.extras)
+
+    transitions = squeeze_transition(batch.data)
     keys, probs, *_ = batch.info
 
     # Forward pass.
+    params = squeeze_dict(params)
+    target_params = squeeze_dict(target_params)
+
     if self.stochastic_network:
       q_tm1 = network.apply(params, key, transitions.observation)
       q_t_value = network.apply(target_params, key,
                                 transitions.next_observation)
       q_t_selector = network.apply(params, key, transitions.next_observation)
     else:
-      fingerprints_batch = unbox_fingerprints(transitions.observation)
-      next_fingerprints_batch = unbox_fingerprints(transitions.next_observation)
+      fprts_batch = unbox_fingerprints(transitions.observation)
+      next_fprts_batch = unbox_fingerprints(transitions.next_observation)
 
-      bs, n_actions, _ = transitions.observation.shape  # (bs, obs_bs, fp_dim)
+      bs, n_actions, _ = transitions.observation.shape
 
       q_tm1 = jnp.empty((0, n_actions))
       q_t_value = jnp.empty((0, n_actions))
       q_t_selector = jnp.empty((0, n_actions))
 
       # Reassemble the batch as (bs, n_actions)
-      for fps, next_fps in zip(fingerprints_batch, next_fingerprints_batch):
-        # (n_states_tp1, fp) -> (q_values_tp1, 1)
-        q_tm1_fps = network.apply(params, fps)
-        q_t_value_fps = network.apply(target_params, next_fps)
-        q_t_selector_fps = network.apply(params, next_fps)
+      for fprts, next_fprts in zip(fprts_batch, next_fprts_batch):
+        # fprts and next_fprts usually have diff shape
+        # network.apply: (n_states_tp1, fp) -> (q_values_tp1, 1)
+        q_tm1_fprts = network.apply(params, fprts, is_training=True)
+        q_t_value_fprts = network.apply(target_params, next_fprts, is_training=True)
+        q_t_selector_fprts = network.apply(params, next_fprts, is_training=True)
 
         # (q_values_tp1, 1) -> (q_values_tp1)
-        q_tm1_fps = jnp.squeeze(q_tm1_fps)
-        q_t_value_fps = jnp.squeeze(q_t_value_fps)
-        q_t_selector_fps = jnp.squeeze(q_t_selector_fps)
+        q_tm1_fprts = jnp.squeeze(q_tm1_fprts)
+        q_t_value_fprts = jnp.squeeze(q_t_value_fprts)
+        q_t_selector_fprts = jnp.squeeze(q_t_selector_fprts)
 
-        # Shape: (q_values_tp1) -> (n_actions)
-        #        n_actions = obs_bs = q_values_tp1 + -jnp.inf padding
-        # Padding: -inf ensure padding actions/states are not selected by argmax
+        # rlax requires fixed shape matrix: q_tm1, q_t_value, q_t_selector
+        # shape: (q_values_tp1) -> (n_actions)
+        #        n_actions == obs_bs = q_values_tp1 + -jnp.inf padding
+        # padding: -inf ensure padding actions/states are not selected by argmax
         actions = jnp.full((n_actions,), -jnp.inf, dtype=jnp.float32)
 
-        # _xxx: one single sample of the batch
-        _q_tm1 = actions.at[:len(q_tm1_fps)].set(q_tm1_fps)
-        _q_t_value = actions.at[:len(q_t_value_fps)].set(q_t_value_fps)
-        _q_t_selector = actions.at[:len(q_t_selector_fps)].set(q_t_selector_fps)
+        # naming convention : '_xxx' means one single sample of the batch
+        _q_tm1 = actions.at[:len(q_tm1_fprts)].set(q_tm1_fprts)
+        _q_t_value = actions.at[:len(q_t_value_fprts)].set(q_t_value_fprts)
+        _q_t_selector = actions.at[:len(q_t_selector_fprts)].set(q_t_selector_fprts)
 
         q_tm1 = jnp.vstack((q_tm1, _q_tm1))
         q_t_value = jnp.vstack((q_t_value, _q_t_value))
@@ -158,8 +178,7 @@ class PrioritizedDoubleQLearningFingerprint(learning_lib.LossFn):
 
     # Compute double Q-learning n-step TD-error.
     batch_error = jax.vmap(rlax.double_q_learning)
-    td_error = batch_error(q_tm1, transitions.action, r_t, d_t, q_t_value,
-                           q_t_selector)
+    td_error = batch_error(q_tm1, transitions.action, r_t, d_t, q_t_value, q_t_selector)
     batch_loss = rlax.huber_loss(td_error, self.huber_loss_parameter)
 
     # Importance weighting.
@@ -170,8 +189,8 @@ class PrioritizedDoubleQLearningFingerprint(learning_lib.LossFn):
     # Reweight.
     loss = jnp.mean(importance_weights * batch_loss)  # []
     reverb_update = learning_lib.ReverbUpdate(
-        keys=keys, priorities=jnp.abs(td_error).astype(jnp.float64))
-    extra = learning_lib.LossExtra(metrics={}, reverb_update=reverb_update)
+      keys=keys, priorities=jnp.abs(td_error).astype(jnp.float64))
+    extra = learning_lib.LossExtra(metrics={})
     return loss, extra
 
 
@@ -196,26 +215,26 @@ class QrDqn(learning_lib.LossFn):
     transitions: types.Transition = batch.data
     key1, key2 = jax.random.split(key)
     _, dist_q_tm1 = network.apply(
-        params, transitions.observation, is_training=True, key=key1)
+      params, transitions.observation, is_training=True, key=key1)
     _, dist_q_target_t = network.apply(
-        target_params, transitions.next_observation, is_training=True, key=key2)
+      target_params, transitions.next_observation, is_training=True, key=key2)
     batch_size = len(transitions.observation)
     chex.assert_shape(
-        dist_q_tm1, (
-            batch_size,
-            None,
-            self.num_atoms,
-        ),
-        custom_message=f'Expected (batch_size, num_actions, num_atoms), got: {dist_q_tm1.shape}',
-        include_default_message=True)
+      dist_q_tm1, (
+        batch_size,
+        None,
+        self.num_atoms,
+      ),
+      custom_message=f'Expected (batch_size, num_actions, num_atoms), got: {dist_q_tm1.shape}',
+      include_default_message=True)
     chex.assert_shape(
-        dist_q_target_t, (
-            batch_size,
-            None,
-            self.num_atoms,
-        ),
-        custom_message=f'Expected (batch_size, num_actions, num_atoms), got: {dist_q_target_t.shape}',
-        include_default_message=True)
+      dist_q_target_t, (
+        batch_size,
+        None,
+        self.num_atoms,
+      ),
+      custom_message=f'Expected (batch_size, num_actions, num_atoms), got: {dist_q_target_t.shape}',
+      include_default_message=True)
     # Swap distribution and action dimension, since
     # rlax.quantile_q_learning expects it that way.
     dist_q_tm1 = jnp.swapaxes(dist_q_tm1, 1, 2)
@@ -223,16 +242,16 @@ class QrDqn(learning_lib.LossFn):
     quantiles = (
         (jnp.arange(self.num_atoms, dtype=jnp.float32) + 0.5) / self.num_atoms)
     batch_quantile_q_learning = jax.vmap(
-        rlax.quantile_q_learning, in_axes=(0, None, 0, 0, 0, 0, 0, None))
+      rlax.quantile_q_learning, in_axes=(0, None, 0, 0, 0, 0, 0, None))
     losses = batch_quantile_q_learning(
-        dist_q_tm1,
-        quantiles,
-        transitions.action,
-        transitions.reward,
-        transitions.discount,
-        dist_q_target_t,  # No double Q-learning here.
-        dist_q_target_t,
-        self.huber_param,
+      dist_q_tm1,
+      quantiles,
+      transitions.action,
+      transitions.reward,
+      transitions.discount,
+      dist_q_target_t,  # No double Q-learning here.
+      dist_q_target_t,
+      self.huber_param,
     )
     loss = jnp.mean(losses)
     chex.assert_shape(losses, (batch_size,))
@@ -262,11 +281,11 @@ class PrioritizedCategoricalDoubleQLearning(learning_lib.LossFn):
     # Forward pass.
     key1, key2, key3 = jax.random.split(key, 3)
     _, logits_tm1, atoms_tm1 = network.apply(
-        params, transitions.observation, is_training=True, key=key1)
+      params, transitions.observation, is_training=True, key=key1)
     _, logits_t, atoms_t = network.apply(
-        target_params, transitions.next_observation, is_training=True, key=key2)
+      target_params, transitions.next_observation, is_training=True, key=key2)
     q_t_selector, _, _ = network.apply(
-        params, transitions.next_observation, is_training=True, key=key3)
+      params, transitions.next_observation, is_training=True, key=key3)
 
     # Cast and clip rewards.
     d_t = (transitions.discount * self.discount).astype(jnp.float32)
@@ -275,8 +294,8 @@ class PrioritizedCategoricalDoubleQLearning(learning_lib.LossFn):
 
     # Compute categorical double Q-learning loss.
     batch_loss_fn = jax.vmap(
-        rlax.categorical_double_q_learning,
-        in_axes=(None, 0, 0, 0, 0, None, 0, 0))
+      rlax.categorical_double_q_learning,
+      in_axes=(None, 0, 0, 0, 0, None, 0, 0))
     batch_loss = batch_loss_fn(atoms_tm1, logits_tm1, transitions.action, r_t,
                                d_t, atoms_t, logits_t, q_t_selector)
 
@@ -288,7 +307,7 @@ class PrioritizedCategoricalDoubleQLearning(learning_lib.LossFn):
     # Reweight.
     loss = jnp.mean(importance_weights * batch_loss)  # []
     extra = learning_lib.LossExtra(
-        metrics={}, reverb_priorities=jnp.abs(batch_loss).astype(jnp.float64))
+      metrics={}, reverb_priorities=jnp.abs(batch_loss).astype(jnp.float64))
     return loss, extra
 
 
@@ -318,9 +337,9 @@ class QLearning(learning_lib.LossFn):
     # Forward pass.
     key1, key2 = jax.random.split(key)
     q_tm1 = network.apply(
-        params, transitions.observation, is_training=True, key=key1)
+      params, transitions.observation, is_training=True, key=key1)
     q_t = network.apply(
-        target_params, transitions.next_observation, is_training=True, key=key2)
+      target_params, transitions.next_observation, is_training=True, key=key2)
 
     # Cast and clip rewards.
     d_t = (transitions.discount * self.discount).astype(jnp.float32)
@@ -362,20 +381,21 @@ class RegularizedQLearning(learning_lib.LossFn):
     # Forward pass.
     key1, key2 = jax.random.split(key)
     q_tm1 = network.apply(
-        params, transitions.observation, is_training=True, key=key1)
+      params, transitions.observation, is_training=True, key=key1)
     q_t = network.apply(
-        target_params, transitions.next_observation, is_training=True, key=key2)
+      target_params, transitions.next_observation, is_training=True, key=key2)
 
     d_t = (transitions.discount * self.discount).astype(jnp.float32)
 
     # Compute Q-learning TD-error.
     batch_error = jax.vmap(rlax.q_learning)
     td_error = batch_error(
-        q_tm1, transitions.action, transitions.reward, d_t, q_t)
+      q_tm1, transitions.action, transitions.reward, d_t, q_t)
     td_error = 0.5 * jnp.square(td_error)
 
     def select(qtm1, action):
       return qtm1[action]
+
     q_regularizer = jax.vmap(select)(q_tm1, transitions.action)
 
     loss = self.regularizer_coeff * jnp.mean(q_regularizer) + jnp.mean(td_error)
@@ -410,13 +430,13 @@ class MunchausenQLearning(learning_lib.LossFn):
     # Forward pass.
     key1, key2, key3 = jax.random.split(key, 3)
     q_online_s = network.apply(
-        params, transitions.observation, is_training=True, key=key1)
+      params, transitions.observation, is_training=True, key=key1)
     action_one_hot = jax.nn.one_hot(transitions.action, q_online_s.shape[-1])
     q_online_sa = jnp.sum(action_one_hot * q_online_s, axis=-1)
     q_target_s = network.apply(
-        target_params, transitions.observation, is_training=True, key=key2)
+      target_params, transitions.observation, is_training=True, key=key2)
     q_target_next = network.apply(
-        target_params, transitions.next_observation, is_training=True, key=key3)
+      target_params, transitions.next_observation, is_training=True, key=key3)
 
     # Cast and clip rewards.
     d_t = (transitions.discount * self.discount).astype(jnp.float32)
@@ -425,7 +445,7 @@ class MunchausenQLearning(learning_lib.LossFn):
 
     # Munchausen term : tau * log_pi(a|s)
     munchausen_term = self.entropy_temperature * jax.nn.log_softmax(
-        q_target_s / self.entropy_temperature, axis=-1)
+      q_target_s / self.entropy_temperature, axis=-1)
     munchausen_term_a = jnp.sum(action_one_hot * munchausen_term, axis=-1)
     munchausen_term_a = jnp.clip(munchausen_term_a,
                                  a_min=self.clip_value_min,
@@ -433,7 +453,7 @@ class MunchausenQLearning(learning_lib.LossFn):
 
     # Soft Bellman operator applied to q
     next_v = self.entropy_temperature * jax.nn.logsumexp(
-        q_target_next / self.entropy_temperature, axis=-1)
+      q_target_next / self.entropy_temperature, axis=-1)
     target_q = jax.lax.stop_gradient(r_t + self.munchausen_coefficient *
                                      munchausen_term_a + d_t * next_v)
 

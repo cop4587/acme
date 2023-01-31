@@ -98,12 +98,11 @@ class SGDLearner(acme.Learner):
     # SGD performs the loss, optimizer update and periodic target net update.
     def sgd_step(state: TrainingState,
                  batch: reverb.ReplaySample) -> Tuple[TrainingState, LossExtra]:
-      state_rng_key = jnp.squeeze(state.rng_key)  # for molax
+      state_rng_key = jnp.squeeze(state.rng_key)  # Fix: squeeze for molax
       next_rng_key, rng_key = jax.random.split(state_rng_key)
       # Implements one SGD step of the loss and updates training state
       (loss, extra), grads = jax.value_and_grad(
-          self._loss, has_aux=True)(state.params, state.target_params, batch,
-                                    rng_key)
+          self._loss, has_aux=True)(state.params, state.target_params, batch, rng_key)
 
       loss = jax.lax.pmean(loss, axis_name=PMAP_AXIS_NAME)
       # Average gradients over pmap replicas before optimizer update.
